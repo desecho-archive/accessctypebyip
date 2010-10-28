@@ -1,5 +1,5 @@
 <?php
-// $Id: accessctypebyip.module,v 1.1 2009/09/13 12:54:39 desecho Exp $
+// $Id: accessctypebyip.module,v 1.2 2009/10/29 19:35:06 desecho Exp $
 
 /**
  * @file
@@ -129,9 +129,9 @@ function accessctypebyip_caching_db_data($reset = FALSE) {
       // Get data from DB.
       foreach ($node_types as $type) {
         $result = db_query("SELECT ips, hostnames FROM {accessctypebyip} WHERE type = '%s'", $type);
-        $data["$type"] = array();
+        $data[$type] = array();
         while ($value = db_fetch_array($result)) {
-          $data["$type"] = array_merge_recursive($data["$type"], $value);
+          $data[$type] = array_merge_recursive($data[$type], $value);
         }
       }
       // Get an array with combined IPs and hostnames from all users.
@@ -149,9 +149,9 @@ function accessctypebyip_caching_db_data($reset = FALSE) {
             }
           }
           else {
-            $values = $data["$ctype_name"]["$item_name"];
+            $values = $data[$ctype_name][$item_name];
           }
-          $data2["$ctype_name"]["$item_name"] = $values;
+          $data2[$ctype_name][$item_name] = $values;
           $values = '';
         }
       }
@@ -159,14 +159,14 @@ function accessctypebyip_caching_db_data($reset = FALSE) {
       foreach ($data2 as $ctype_name => $ctype) {
         $x = explode("\r\n", $ctype['hostnames']);
         foreach ($x as $hostname) {
-          $ips = gethostbynamel("$hostname");
+          $ips = gethostbynamel($hostname);
           if ($ips != '') {
             foreach ($ips as $ip) {
-              $data2["$ctype_name"]['ips'] .= "\r\n" . $ip;
+              $data2[$ctype_name]['ips'] .= "\r\n" . $ip;
             }
           }
         }
-        unset($data2["$ctype_name"]['hostnames']);
+        unset($data2[$ctype_name]['hostnames']);
       }
       $db_data = $data2;
       // Cache expires in one day.
@@ -211,7 +211,7 @@ function accessctypebyip_perm() {
 function accessctypebyip_node_grants($account, $op) {
   $db_data = accessctypebyip_caching_db_data();
   $node_types = accessctypebyip_get_node_types();
-  $remote_ip = $_SERVER['REMOTE_ADDR'];
+  $remote_ip = ip_address();
   if ($op == 'view') {
     if (accessctypebyip_ip_in_bigrange($remote_ip, $db_data['all']['ips'])) {
       foreach ($node_types as $type) {
@@ -221,7 +221,7 @@ function accessctypebyip_node_grants($account, $op) {
       return $grants;
     }
     foreach ($node_types as $type) {
-      if (accessctypebyip_ip_in_bigrange($remote_ip, $db_data["$type"]['ips'])) {
+      if (accessctypebyip_ip_in_bigrange($remote_ip, $db_data[$type]['ips'])) {
         $grants["accessctypebyip_$type"] = array(1);
       }
     }
@@ -256,7 +256,7 @@ function accessctypebyip_node_access_records($node) {
 
 function accessctypebyip_admin() {
   // Get node type list with names
-  $node_types_full = _node_types_build();
+  $node_types_full = node_get_types();
   $cur_uid = accessctypebyip_get_current_uid();
   $node_types = accessctypebyip_get_node_types_with_all_pseudo_type();
   foreach ($node_types as $type) {
@@ -264,7 +264,7 @@ function accessctypebyip_admin() {
       $form["accessctypebyip_$type"] = array('#type' => 'fieldset', '#title' => t('All content types access settings'));
     }
     else {
-      $form["accessctypebyip_$type"] = array('#type' => 'fieldset', '#title' => $node_types_full[1]["$type"] .' '. t('access settings'));
+      $form["accessctypebyip_$type"] = array('#type' => 'fieldset', '#title' => $node_types_full[$type]->name .' '. t('access settings'));
     }
     $form["accessctypebyip_$type"]["accessctypebyip_{$cur_uid}_{$type}_ips"] = array(
       '#type' => 'textarea',
@@ -373,7 +373,7 @@ function accessctypebyip_admin_validate($form, &$form_state) {
     if ($hostnames != '') {
       $hostnames = explode("\r\n", $hostnames);
       foreach ($hostnames as $hostname) {
-        $ips = gethostbynamel("$hostname");
+        $ips = gethostbynamel($hostname);
         if (!$ips) {
           form_set_error("accessctypebyip_{$cur_uid}_{$type}_hostnames'", ( t('Incorrect hostname is entered in content type') ."\"$type\" ($hostname)"));
         }

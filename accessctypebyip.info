@@ -3,9 +3,9 @@ name = Access Content Type by IP
 description = Controls access to content types by IP addresses and hostnames.
 package = Access control
 core = 6.x
-; Information added by drupal.org packaging script on 2009-09-13
-version = "6.x-1.0-beta1"
+; Information added by drupal.org packaging script on 2010-07-11
+version = "6.x-1.x-dev"
 core = "6.x"
 project = "accessctypebyip"
-datestamp = "1252848302"
+datestamp = "1278833293"
 
