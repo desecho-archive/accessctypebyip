@@ -1,5 +1,5 @@
 <?php
-// $Id: accessctypebyip.module,v 1.2 2009/10/29 19:35:06 desecho Exp $
+// $Id: accessctypebyip.module
 
 /**
  * @file
@@ -42,6 +42,10 @@ function accessctypebyip_is_ip($ip) {
   *  @return boolean value showing whether an IP address belongs to a range.
   */
 function accessctypebyip_ip_in_range($ip, $range) {
+  //CIDR algorithm below does not work for 0.0.0.0/0 range.
+  if ($range == "0.0.0.0/0") {
+    return TRUE;
+  }
   if (strpos($range, '/')) {
     // $range is in IP/NETMASK format.
     list($range, $netmask) = explode('/', $range, 2);
@@ -56,10 +60,16 @@ function accessctypebyip_ip_in_range($ip, $range) {
       while (count($x) < 4) $x[] = '0';
       list($a, $b, $c, $d) = $x;
       $range = sprintf("%u.%u.%u.%u", empty($a)?'0':$a, empty($b)?'0':$b, empty($c)?'0':$c, empty($d)?'0':$d);
+      echo "$range <br>";
       $range_dec = ip2long($range);
+      echo "$range_dec <br>";
       $ip_dec = ip2long($ip);
-      $wildcard_dec = pow(2, (32-$netmask)) - 1;
+      echo "$ip <br>";
+      echo "$ip_dec <br>";
+      $wildcard_dec = pow(2, (32 - $netmask)) - 1;
+      echo "$wildcard_dec <br>";
       $netmask_dec = ~ $wildcard_dec;
+      echo "$netmask_dec <br>";
       return (($ip_dec & $netmask_dec) == ($range_dec & $netmask_dec));
     }
   }
@@ -78,7 +88,7 @@ function accessctypebyip_ip_in_range($ip, $range) {
       $lower_dec = (float)sprintf("%u", ip2long($lower));
       $upper_dec = (float)sprintf("%u", ip2long($upper));
       $ip_dec = (float)sprintf("%u", ip2long($ip));
-      return ( ($ip_dec>=$lower_dec) && ($ip_dec<=$upper_dec) );
+      return ( ($ip_dec >= $lower_dec) && ($ip_dec <= $upper_dec) );
     }
     // Single IP format.
     if ($range == $ip) {
@@ -155,7 +165,7 @@ function accessctypebyip_caching_db_data($reset = FALSE) {
           $values = '';
         }
       }
-      // Add IPs from hostname resolvation.
+      // Add IPs from hostname resolution.
       foreach ($data2 as $ctype_name => $ctype) {
         $x = explode("\r\n", $ctype['hostnames']);
         foreach ($x as $hostname) {
@@ -202,7 +212,7 @@ function accessctypebyip_help($path, $arg) {
   *  @return array An array of valid permissions for the accessctypebyip module.
   */
 function accessctypebyip_perm() {
-  return array( 'administer accessctypebyip');
+  return array('administer accessctypebyip');
 } // function accessctypebyip_perm()
 
 /**

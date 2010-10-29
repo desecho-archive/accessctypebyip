@@ -13,6 +13,7 @@
 function accessctypebyip_install() {
   drupal_install_schema('accessctypebyip');
   db_query("INSERT INTO {accessctypebyip} (uid, type, ips, hostnames) VALUES (1, 'all', '0.0.0.0-255.255.255.255' , '')");
+  db_query("INSERT INTO {variables} (name, value) VALUES ('accessctypebyip_1_all_ips', 's:23:\"0.0.0.0-255.255.255.255\";')");
 }
 
 /**
