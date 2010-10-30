@@ -6,8 +6,8 @@
  * Controls access to content types by IP addresses and hostnames.
  *
  * Full description:
- * Enables access to all content types by default. After saving access rules by user with id#1 it enables the access settings of user with id#1.
- * Caches resolved hostnames IPs. It expires in a day.
+ * The default settings are made for a user with id#1 and it enables access to all content types to an IP-range 0.0.0.0-255.255.255.255.
+ * Module caches resolved hostnames IPs. The cache expiration time is configurable. The access priority of the module is also configurable.
  */
 
 /*
@@ -60,16 +60,10 @@ function accessctypebyip_ip_in_range($ip, $range) {
       while (count($x) < 4) $x[] = '0';
       list($a, $b, $c, $d) = $x;
       $range = sprintf("%u.%u.%u.%u", empty($a)?'0':$a, empty($b)?'0':$b, empty($c)?'0':$c, empty($d)?'0':$d);
-      echo "$range <br>";
       $range_dec = ip2long($range);
-      echo "$range_dec <br>";
       $ip_dec = ip2long($ip);
-      echo "$ip <br>";
-      echo "$ip_dec <br>";
       $wildcard_dec = pow(2, (32 - $netmask)) - 1;
-      echo "$wildcard_dec <br>";
       $netmask_dec = ~ $wildcard_dec;
-      echo "$netmask_dec <br>";
       return (($ip_dec & $netmask_dec) == ($range_dec & $netmask_dec));
     }
   }
@@ -98,9 +92,13 @@ function accessctypebyip_ip_in_range($ip, $range) {
   }
 }
 
+function accessctypebyip_split_lines($string) {
+  return preg_split('/\r\n|\r|\n/', $string);
+}
+
 // Checks if an ip belongs to an ip range list.
 function accessctypebyip_ip_in_bigrange($ip, $range) {
-  $list = explode("\r\n", $range);
+  $list = accessctypebyip_split_lines($range);
   foreach ($list as $range_single) {
     if (accessctypebyip_ip_in_range($ip, $range_single)) {
       return TRUE;
@@ -167,7 +165,7 @@ function accessctypebyip_caching_db_data($reset = FALSE) {
       }
       // Add IPs from hostname resolution.
       foreach ($data2 as $ctype_name => $ctype) {
-        $x = explode("\r\n", $ctype['hostnames']);
+        $x = accessctypebyip_split_lines($ctype['hostnames']);
         foreach ($x as $hostname) {
           $ips = gethostbynamel($hostname);
           if ($ips != '') {
@@ -179,8 +177,7 @@ function accessctypebyip_caching_db_data($reset = FALSE) {
         unset($data2[$ctype_name]['hostnames']);
       }
       $db_data = $data2;
-      // Cache expires in one day.
-      cache_set('accessctypebyip_db_data', $db_data, 'cache', time() + 86400);
+      cache_set('accessctypebyip_db_data', $db_data, 'cache', time() + variable_get('accessctypebyip_cache', 1) * 86400);
     }
   }
   return $db_data;
@@ -195,13 +192,12 @@ function accessctypebyip_caching_db_data($reset = FALSE) {
 function accessctypebyip_help($path, $arg) {
   $output = '';
   switch ($path) {
-    case "admin/help#accessctypebyip":
-      $output = '<p>'.  t('The access content type by ip module provides permission management for ip addresses and hostnames for node types.') .'</p><p>'.
-      t('Network ranges need to be separated with a new line') .'<br />'.
-      t('Network ranges can be specified as:') .'<br /><ol><li>'. t('Wildcard format: ') .'1.2.3.*</li>
-      <li>'. t('CIDR format: ') .'1.2.3.0/24 '. t('or') .' 1.2.3.4/255.255.255.0</li>
-      <li>'. t('Start-End IP format: ') .'1.2.3.0-1.2.3.255</li>
-      <li>'. t('Single IP format: ') .'1.2.3.4</li></ol></p>';
+    case "admin/content/accessctypebyip":
+      $output = '<p>'. t('Network ranges need to be separated with a new line.') . '<br />' .
+      t('Network ranges can be specified as:') . '<br /><ul><li>' . t('Wildcard format: ') . '1.2.3.*</li>
+      <li>' . t('CIDR format: ') . '1.2.3.0/24 ' . t('or') . ' 1.2.3.4/255.255.255.0</li>
+      <li>' . t('Start-End IP format: ') . '1.2.3.0-1.2.3.255</li>
+      <li>' . t('Single IP format: ') . '1.2.3.4</li></ul></p>';
       break;
   }
   return $output;
@@ -212,7 +208,7 @@ function accessctypebyip_help($path, $arg) {
   *  @return array An array of valid permissions for the accessctypebyip module.
   */
 function accessctypebyip_perm() {
-  return array('administer accessctypebyip');
+  return array('administer accessctypebyip', 'configure access');
 } // function accessctypebyip_perm()
 
 /**
@@ -251,7 +247,7 @@ function accessctypebyip_node_access_records($node) {
     'grant_view' => TRUE,
     'grant_update' => FALSE,
     'grant_delete' => FALSE,
-    'priority' => 99,
+    'priority' => variable_get('accessctypebyip_priority', 0),
   );
   $grants[] = array(
     'realm' => 'accessctypebyip_author',
@@ -259,13 +255,13 @@ function accessctypebyip_node_access_records($node) {
     'grant_view' => TRUE,
     'grant_update' => TRUE,
     'grant_delete' => TRUE,
-    'priority' => 99,
+    'priority' => variable_get('accessctypebyip_priority', 0),
   );
   return $grants;
 }
 
-function accessctypebyip_admin() {
-  // Get node type list with names
+function accessctypebyip_config() {
+  // Get node type list with names.
   $node_types_full = node_get_types();
   $cur_uid = accessctypebyip_get_current_uid();
   $node_types = accessctypebyip_get_node_types_with_all_pseudo_type();
@@ -274,7 +270,7 @@ function accessctypebyip_admin() {
       $form["accessctypebyip_$type"] = array('#type' => 'fieldset', '#title' => t('All content types access settings'));
     }
     else {
-      $form["accessctypebyip_$type"] = array('#type' => 'fieldset', '#title' => $node_types_full[$type]->name .' '. t('access settings'));
+      $form["accessctypebyip_$type"] = array('#type' => 'fieldset', '#title' => $node_types_full[$type]->name . ' ' . t('access settings'));
     }
     $form["accessctypebyip_$type"]["accessctypebyip_{$cur_uid}_{$type}_ips"] = array(
       '#type' => 'textarea',
@@ -290,48 +286,15 @@ function accessctypebyip_admin() {
       '#description' => t("Allowed hostnames"),
       '#required' => FALSE,
     );
-  }
-  $form['#submit'][] = 'accessctypebyip_form_submit';
+  }  
+  $form['#submit'][] = 'accessctypebyip_config_form_submit';
   return system_settings_form($form);
-}
-
-function accessctypebyip_form_submit($form, &$form_state) {
-  $node_types = accessctypebyip_get_node_types_with_all_pseudo_type();
-  $cur_uid = accessctypebyip_get_current_uid();
-  foreach ($node_types as $type) {
-    $rec_exists = array_values(db_fetch_array(db_query("SELECT COUNT(DISTINCT uid) FROM {accessctypebyip} WHERE uid=%d AND type = '%s'", $cur_uid, $type)));
-    if ($rec_exists[0] == 1) {
-      db_query("UPDATE {accessctypebyip} SET ips = '%s', hostnames = '%s' WHERE uid=%d AND type = '%s'", $form_state['values']["accessctypebyip_{$cur_uid}_{$type}_ips"], $form_state['values']["accessctypebyip_{$cur_uid}_{$type}_hostnames"], $cur_uid, $type);
-    }
-    else {
-      db_query("INSERT INTO {accessctypebyip} (uid, type, ips, hostnames) VALUES (%d, '%s', '%s', '%s')", $cur_uid, $type, $form_state['values']["accessctypebyip_{$cur_uid}_{$type}_ips"], $form_state['values']["accessctypebyip_{$cur_uid}_{$type}_hostnames"]);
-    }
-  }
-  drupal_set_message(t('The access settings have been saved.'));
-  cache_clear_all('accessctypebyip_db_data', 'cache');
-}
-
-/**
- * Implement hook_menu().
- */
-function accessctypebyip_menu() {
-  $items = array();
-  $items['admin/settings/accessctypebyip'] = array(
-    'title' => 'Access Content Type by IP module settings',
-    'description' => 'Configure access permissions',
-    'page callback' => 'drupal_get_form',
-    'page arguments' => array('accessctypebyip_admin'),
-    'access arguments' => array('administer accessctypebyip'),
-    'type' => MENU_NORMAL_ITEM,
-  );
-
-  return $items;
 }
 
 /**
  * Implement hook_validate().
  */
-function accessctypebyip_admin_validate($form, &$form_state) {
+function accessctypebyip_config_validate($form, &$form_state) {
   // Validate an IP range.
   function validate_ip($range) {
     if (strpos($range, '/')) {
@@ -381,24 +344,110 @@ function accessctypebyip_admin_validate($form, &$form_state) {
   foreach ($node_types as $type) {
     $hostnames = $form_state['values']["accessctypebyip_{$cur_uid}_{$type}_hostnames"];
     if ($hostnames != '') {
-      $hostnames = explode("\r\n", $hostnames);
+      $hostnames = accessctypebyip_split_lines($hostnames);
       foreach ($hostnames as $hostname) {
         $ips = gethostbynamel($hostname);
         if (!$ips) {
-          form_set_error("accessctypebyip_{$cur_uid}_{$type}_hostnames'", ( t('Incorrect hostname is entered in content type') ."\"$type\" ($hostname)"));
+          form_set_error("accessctypebyip_{$cur_uid}_{$type}_hostnames'", t('Incorrect hostname is entered in content type') . "\"$type\" ($hostname)");
         }
       }
     }
     $ips = $form_state['values']["accessctypebyip_{$cur_uid}_{$type}_ips"];
     if ($ips != '') {
-      $ips = explode("\r\n", $ips);
+      $ips = accessctypebyip_split_lines($ips);
       foreach ($ips as $ip) {
         if (!validate_ip($ip)) {
-          form_set_error("accessctypebyip_{$cur_uid}_{$type}_ips'", (t('Incorrect IP range is entered in content type') ."\"$type\" ($ip)"));
+          form_set_error("accessctypebyip_{$cur_uid}_{$type}_ips'", t('Incorrect IP range is entered in content type') . "\"$type\" ($ip)");
         }
       }
     }
   }
+}
+
+function accessctypebyip_config_form_submit($form, &$form_state) {
+  $node_types = accessctypebyip_get_node_types_with_all_pseudo_type();
+  $cur_uid = accessctypebyip_get_current_uid();
+  foreach ($node_types as $type) {
+    $rec_exists = array_values(db_fetch_array(db_query("SELECT COUNT(DISTINCT uid) FROM {accessctypebyip} WHERE uid=%d AND type = '%s'", $cur_uid, $type)));
+    if ($rec_exists[0] == 1) {
+      db_query("UPDATE {accessctypebyip} SET ips = '%s', hostnames = '%s' WHERE uid=%d AND type = '%s'", $form_state['values']["accessctypebyip_{$cur_uid}_{$type}_ips"], $form_state['values']["accessctypebyip_{$cur_uid}_{$type}_hostnames"], $cur_uid, $type);
+    }
+    else {
+      db_query("INSERT INTO {accessctypebyip} (uid, type, ips, hostnames) VALUES (%d, '%s', '%s', '%s')", $cur_uid, $type, $form_state['values']["accessctypebyip_{$cur_uid}_{$type}_ips"], $form_state['values']["accessctypebyip_{$cur_uid}_{$type}_hostnames"]);
+    }
+  }
+  cache_clear_all('accessctypebyip_db_data', 'cache');
+}
+
+function accessctypebyip_admin() {
+  $form['accessctypebyip_priority'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Priority'),
+    '#default_value' => variable_get('accessctypebyip_priority', 0),
+    '#size' => 2,
+    '#maxlength' => 2,
+    '#description' => t("If you are only using this access control module, you can safely ignore this. If you are using multiple access control modules, and you want the grants given on individual nodes to override any grants given by other modules, you should change the priority of the module."),
+    '#required' => TRUE,
+  );
+  
+    $form['accessctypebyip_cache'] = array(
+    '#type' => 'textfield',
+    '#title' => t('Cache expiration time'),
+    '#default_value' => variable_get('accessctypebyip_cache', 1),
+    '#size' => 3,
+    '#maxlength' => 3,
+    '#description' => t("Cash expiration time in days. Module reresolves hostnames after this time period."),
+    '#required' => TRUE,
+  );
+  
+  $form['#submit'][] = 'accessctypebyip_admin_form_submit';
+  return system_settings_form($form);
+}
+
+function accessctypebyip_admin_validate($form, &$form_state) {
+  // Validate cache.
+  $cache = $form_state['values']['accessctypebyip_cache'];
+  if ($cache < 0) {
+    form_set_error('accessctypebyip_cache', t('Incorrect cache value. Input a positive number'));
+  }
+  // Validate priority.
+  $priority = $form_state['values']['accessctypebyip_priority'];
+  if ($priority < 0) {
+    form_set_error('accessctypebyip_priority', t('Incorrect priority value. Input a positive number'));
+  }
+}
+
+function accessctypebyip_admin_form_submit($form, &$form_state) {
+  if ($form_state['values']['accessctypebyip_priority'] != variable_get('accessctypebyip_priority', 0)) {
+    node_access_needs_rebuild(TRUE);
+  }
+  if ($form_state['values']['accessctypebyip_cache'] != variable_get('accessctypebyip_cache', 0)) {
+    cache_clear_all('accessctypebyip_db_data', 'cache');
+  }
+}
+
+/**
+ * Implement hook_menu().
+ */
+function accessctypebyip_menu() {
+  $items = array();
+  $items['admin/content/accessctypebyip'] = array(
+    'title' => 'Configure access by IP',
+    'description' => '',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('accessctypebyip_config'),
+    'access arguments' => array('configure access'),
+    'type' => MENU_NORMAL_ITEM,
+  );
+  $items['admin/settings/accessctypebyip'] = array(
+    'title' => 'Access Content Type by IP module settings',
+    'description' => '',
+    'page callback' => 'drupal_get_form',
+    'page arguments' => array('accessctypebyip_admin'),
+    'access arguments' => array('administer accessctypebyip'),
+    'type' => MENU_NORMAL_ITEM,
+  );
+  return $items;
 }
 
 /**
@@ -409,9 +458,9 @@ function accessctypebyip_admin_validate($form, &$form_state) {
 function accessctypebyip_user($op, &$edit, &$account, $category = NULL) {
   if ($op == 'delete') {
     $uid = $account->uid;
-    // Delete the settings from database
+    // Delete the settings from database.
     db_query("DELETE FROM {accessctypebyip} WHERE uid = %d", $uid);
-    // Delete the settings from variables
+    // Delete the settings from variables.
     $name = "accessctypebyip_$uid%";
     db_query("DELETE FROM {variable} WHERE name LIKE '%s'", $name);
     cache_clear_all('variables', 'cache');
@@ -426,9 +475,9 @@ function accessctypebyip_user($op, &$edit, &$account, $category = NULL) {
 function accessctypebyip_node_type($op, $info) {
   if ($op == 'delete') {
     $type = $info->type;
-    // Delete the settings from database
+    // Delete the settings from database.
     db_query("DELETE FROM {accessctypebyip} WHERE type = '%s'", $type);
-    // Delete the settings from variables
+    // Delete the settings from variables.
     $name = "accessctypebyip_%_$type_%";
     db_query("DELETE FROM {variable} WHERE name LIKE '%s'", $name);
     cache_clear_all('variables', 'cache');
